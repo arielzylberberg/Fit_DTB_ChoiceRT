@@ -2,6 +2,7 @@ function [err,P] = wrapper_dtb_parametricbound_rt(theta,rt,coh,choice,c,pars,plo
 % function [err,P] = wrapper_dtb_parametricbound_rt(theta,rt,coh,choice,c,pars,plot_flag)
 % written by ariel zylberberg (ariel.zylberberg@gmail.com)
 
+
 %%
 kappa  = theta(1);
 ndt_m  = theta(2);
@@ -23,7 +24,7 @@ end
 
 if ~isempty(pars) && isfield(pars,'t')
     t = pars.t;
-    %dt = t(2)-t(1);
+    dt = t(2)-t(1);
 else
     dt = 0.0005;
     t  = 0:dt:10;
@@ -39,16 +40,15 @@ end
 
 %%
 
-% y  = linspace(min(Blo)-0.3,max(Bup)+0.3,512)';%esto puede ser problematico
-y  = symmetric_scale(max(Bup)*1.2,0.004);
+y  = linspace(min(Blo)-0.3,max(Bup)+0.3,1500)';
+
+y0a = clip(y0a,Blo(1),Bup(1));
 
 y0 = zeros(size(y));
-y0(findclose(y,0)) = 1;
+y0(findclose(y,y0a)) = 1;
 y0 = y0/sum(y0);
 
 
-%%
-% prior = Rtable(coh)/sum(Rtable(coh));
 
 %%
 drift = kappa * unique(coh + coh0);
@@ -63,45 +63,109 @@ switch methodforward_flag
         P = dtb_fp_cc_vec(drift,t,Bup,Blo,y,y0,notabs_flag);
     case 2 % fft
         P = spectral_dtbAA(drift(:)',t,Bup,Blo,y,y0,notabs_flag);
+    case 3 %cn
+        P = dtb_fp_cn_vec(drift,t,Bup,Blo,y,y0,notabs_flag);
 end
 
 
 %% likelihood
+
 err = logl_choiceRT_1d(P,choice,rt,coh,ndt_m,ndt_s);
+
 
 %% print
 fprintf('err=%.3f kappa=%.2f ndt_mu=%.2f ndt_s=%.2f B0=%.2f a=%.2f d=%.2f coh0=%.2f y0=%.2f \n',...
     err,kappa,ndt_m,ndt_s,B0,a,d,coh0,y0a);
 
+
 %%
+
 if plot_flag
+    m = prctile(rt,99.5);
     
-    figure(11);clf
-    set(gcf,'Position',[241   249   582   202])
+    figure(1);clf
+    set(gcf,'Position',[293  388  828  560])
     
-    subplot(1,2,1);
-    curva_media(choice,coh,[],1);
+    subplot(2,2,1);
+    plot(t,P.Bup,'k');
+    hold all
+    plot(t,P.Blo,'k');
+    title('Bounds (t)')
+    if ~isnan(m)
+        xlim([0,m])
+    end
+    ylabel('Accumulated evidence')
+    xlabel('Time (s)')
+    
+    subplot(2,2,2);
+    [tt,xx,ss] = curva_media(choice,coh,[],0);
+    terrorbar(tt,xx,ss,'color','k','LineStyle','none','Marker','.');
     hold all
     ucoh = unique(coh);
-    plot(ucoh,P.up.p,'.-');
-    xlabel('Motion coherence (%)')
-    ylabel('P rightward choice')
-    xlim([-0.6,0.6])
-    hl = legend('data','model');
-    set(hl,'location','best');
+    plot(ucoh,P.up.p,'k-');
+    xlim([min(ucoh),max(ucoh)])
+    xlabel('Motion coherence');
+    ylabel('P rightward');
     
-    subplot(1,2,2);
-    rt_model = (P.up.mean_t.*P.up.p+P.lo.mean_t.*P.lo.p)./(P.up.p+P.lo.p) + ndt_m; %Just for plotting; is not exact because it
-    % doesn't take into account the curtailing of the non-decision time
-    % distribution
-    curva_media(rt,coh,[],1);
+    subplot(2,2,3);
+    [out,~,rt_prctiles] = rt_quant_plot(coh(choice==1),rt(choice==1),c(choice==1), 0);
     hold all
-    plot(ucoh,rt_model,'.-');
-    xlabel('Motion coherence (%)')
+    colors = [0.8,0,0; 0,0.8,0]; % colors for error and correct responses
+    for j=1:2
+        plot(out(j).uc,out(j).rt_prc','linestyle','-','color','k','color',colors(j,:));
+        hold all
+        plot(out(j).uc,out(j).rt_prc','linestyle','none','marker','x','color',colors(j,:));
+    end
+    
+    
+    rt_prc_up = nan(length(ucoh),length(rt_prctiles));
+    for i=1:length(ucoh)
+        if sum(P.up.cdf_t(i,:))>0
+            pup_cum_norm = P.up.cdf_t(i,:)/P.up.cdf_t(i,end);
+            idx = findclose(pup_cum_norm,rt_prctiles/100);
+            rt_prc_up(i,:) = P.t(idx) + ndt_m; %not exact, should truncate
+        end
+    end
+    plot(P.up.p,rt_prc_up,'k')
+    
+%     P.up.rt_prc_up = rt_prc_up; 
+%     P.up.rt_prctiles = rt_prctiles;
+    
+    xlabel('Response proportion')
     ylabel('Response time (s)')
-    xlim([-0.6,0.6])
-    format_figure(gcf,'FontSize',14);
+    
+    title('Rightward choices only')
+    
+    
+    subplot(2,2,4);
+    
+    ind = P.drift>=0;
+    rt_model_c(ind) = P.up.mean_t(ind) + ndt_m;
+    rt_model_nc(ind) = P.lo.mean_t(ind) + ndt_m;
+    
+    ind = P.drift<0;
+    rt_model_c(ind) = P.lo.mean_t(ind) + ndt_m;
+    rt_model_nc(ind) = P.up.mean_t(ind) + ndt_m;
+    
+    
+    [tt,xx,ss] = curva_media(rt,coh,c~=0,0);
+    terrorbar(tt,xx,ss,'color','k','LineStyle','none','Marker','.');
+    hold all
+    plot(ucoh,rt_model_c,'k-');
+    
+    [tt,xx,ss] = curva_media(rt,coh,c==0,0);
+    terrorbar(tt,xx,ss,'color','r','LineStyle','none','Marker','.');
+    hold all
+    plot(ucoh,rt_model_nc,'r-');
+    
+    xlim([min(ucoh),max(ucoh)])
+    xlabel('Motion coherence');
+    ylabel('Response time');
+    
+    format_figure(gcf);
     
     drawnow
     
 end
+
+

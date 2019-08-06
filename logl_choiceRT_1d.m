@@ -1,4 +1,4 @@
-function [logl,pPred] = logl_choiceRT_1d(P,choice,rt,coh,ndt_m,ndt_s)
+function [logl,pPred,upRT,loRT] = logl_choiceRT_1d(P,choice,rt,coh,ndt_m,ndt_s)
 
 t = P.t;
 
@@ -9,8 +9,8 @@ if t(1)~=0
 end
 nt = length(t);
 dt = t(2)-t(1);
-ntr = length(P.drift);
-
+% ntr = length(P.drift);
+ntr = length(choice);
 
 method = 2;
 switch method
