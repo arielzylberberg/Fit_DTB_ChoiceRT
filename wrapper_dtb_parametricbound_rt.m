@@ -1,6 +1,28 @@
 function [err,P] = wrapper_dtb_parametricbound_rt(theta,rt,coh,choice,c,pars,plot_flag)
 % function [err,P] = wrapper_dtb_parametricbound_rt(theta,rt,coh,choice,c,pars,plot_flag)
-% written by ariel zylberberg (ariel.zylberberg@gmail.com)
+
+% INPUTS
+% ~~~~~~~~~~~
+% theta. Model parameters: [kappa,ndt_m, ndt_s, B0, a, d, coh0, y0]
+% 'kappa': signal-to-noise ratio.
+% 'ndt_m' and 'ndt_s': mean and standard deviation of the non-decision time (assumed Gaussian). 
+% 'B0', 'a', 'd': parameters that specify the shape of the bounds.
+% 'coh0' and'y0': bias terms, the first as a change in the drift rate, and the second one as an offset in the starting point of the accumulation. 
+% 'pars': struct with optional flags and parameters. If 'pars.notabs_flag = True', the output includes the distribution of non-absorved particles.
+% Most useful for variable-duration experiments. 
+% 'pars.USfunc' specifies the shape of the bound (see the 'expand_bounds' function. 
+% 'pars.t' specifies the times at which to solve the Fokker-Planck
+% equation (otherwise, it uses a default).
+% 'plot_flag': boolean. If true, a plot the data & fit is generated and
+% updated during the optimization.
+
+% OUPUTS
+% ~~~~~~~~~~~
+% 'err': negative log likelihood of the params given the data
+% 'P': struct containing the model's distribution of decision times per difficulty
+% level, time course of the bounds, expected accuracy, ...
+
+% Written by ariel zylberberg (ariel.zylberberg@gmail.com)
 
 
 %%
@@ -13,18 +35,17 @@ d      = theta(6);
 coh0   = theta(7);
 y0a    = theta(8);
 
-%%
+%% save the unabsorbed
 if ~isempty(pars) && isfield(pars,'notabs_flag')
     notabs_flag = pars.notabs_flag;
 else
     notabs_flag = false;
 end
 
-%%
+%% set the time vector
 
 if ~isempty(pars) && isfield(pars,'t')
     t = pars.t;
-    dt = t(2)-t(1);
 else
     dt = 0.0005;
     t  = 0:dt:10;
@@ -38,9 +59,9 @@ else
 end
 [Bup,Blo] = expand_bounds(t,B0,a,d,USfunc);
 
-%%
+%% discretize space and initialize the decision variable
 
-y  = linspace(min(Blo)-0.3,max(Bup)+0.3,1500)';
+y  = linspace(min(Blo)-0.3,max(Bup)+0.3,750)';
 
 y0a = clip(y0a,Blo(1),Bup(1));
 
@@ -49,24 +70,9 @@ y0(findclose(y,y0a)) = 1;
 y0 = y0/sum(y0);
 
 
-
-%%
+%% numerical solution using Chang-Cooper's method
 drift = kappa * unique(coh + coh0);
-
-if ~isempty(pars) && isfield(pars,'methodforward_flag')
-    methodforward_flag = pars.methodforward_flag;
-else
-    methodforward_flag = 1;%chang cooper
-end
-switch methodforward_flag
-    case 1 % chang cooper
-        P = dtb_fp_cc_vec(drift,t,Bup,Blo,y,y0,notabs_flag);
-    case 2 % fft
-        P = spectral_dtbAA(drift(:)',t,Bup,Blo,y,y0,notabs_flag);
-    case 3 %cn
-        P = dtb_fp_cn_vec(drift,t,Bup,Blo,y,y0,notabs_flag);
-end
-
+P = dtb_fp_cc_vec(drift,t,Bup,Blo,y,y0,notabs_flag);
 
 %% likelihood
 
@@ -147,6 +153,9 @@ if plot_flag
     rt_model_c(ind) = P.lo.mean_t(ind) + ndt_m;
     rt_model_nc(ind) = P.up.mean_t(ind) + ndt_m;
     
+    % don't plot errors if there probability is too low
+    ind = P.up.p>1e-5 &  P.up.p<(1-1e-5);
+    rt_model_nc(~ind) = nan;
     
     [tt,xx,ss] = curva_media(rt,coh,c~=0,0);
     terrorbar(tt,xx,ss,'color','k','LineStyle','none','Marker','.');
