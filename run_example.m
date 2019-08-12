@@ -25,8 +25,7 @@ th = [40, 0.7, .15 ,4    , 4 ,4,0,0];
 tg = [15, 0.2, .02 ,1    , 0.1 ,1,0,0];
 
 plot_flag = true;
-pars.dt_flag = 1;
-pars.error_flag = 1;
+pars = [];
 
 fn_fit = @(theta) (wrapper_dtb_parametricbound_rt(theta,rt,coh,choice,c,pars,plot_flag));
 
